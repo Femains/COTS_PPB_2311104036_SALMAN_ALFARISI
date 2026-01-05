@@ -29,12 +29,16 @@ class _TaskListPageState extends State<TaskListPage> {
 
   Future<void> fetchTasks() async {
     setState(() => loading = true);
-    final result = await TaskService.getAllTasks();
-    setState(() {
-      allTasks = result;
-      _applyFilter();
-      loading = false;
-    });
+    try {
+      final result = await TaskService.getAllTasks();
+      setState(() {
+        allTasks = result;
+        _applyFilter();
+        loading = false;
+      });
+    } catch (e) {
+      setState(() => loading = false);
+    }
   }
 
   void _applyFilter() {
@@ -55,86 +59,115 @@ class _TaskListPageState extends State<TaskListPage> {
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.primary,
-        onPressed: () async {
-          final refresh = await Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskAddPage()));
-          if (refresh == true) fetchTasks();
-        },
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
       body: Column(
         children: [
-          // Search & Filter Bar
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Cari tugas...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    onChanged: (val) {
-                      searchQuery = val;
-                      _applyFilter();
-                    },
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                DropdownButton<String>(
-                  value: filterStatus,
-                  items: ['Semua', 'Berjalan', 'Selesai', 'Terlambat']
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      filterStatus = val;
-                      _applyFilter();
-                    }
-                  },
-                ),
-              ],
-            ),
-          ),
-          // List
+          _buildSearchAndFilter(),
           Expanded(
             child: loading
                 ? const Center(child: CircularProgressIndicator())
-                : filteredTasks.isEmpty
-                    ? const Center(child: Text("Tidak ada tugas ditemukan"))
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                        itemCount: filteredTasks.length,
-                        itemBuilder: (context, index) {
-                          final task = filteredTasks[index];
-                          return Card(
-                            elevation: 0,
-                            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: BorderSide(color: Colors.grey.shade200),
-                            ),
-                            child: ListTile(
-                              title: Text(task.title, style: AppTypography.subHeading),
-                              subtitle: Text('${task.course}\nDeadline: ${task.deadline}', style: AppTypography.caption),
-                              isThreeLine: true,
-                              trailing: _statusBadge(task),
-                              onTap: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => TaskDetailPage(task: task)),
-                                );
-                                fetchTasks();
-                              },
-                            ),
-                          );
-                        },
-                      ),
+                : _buildList(),
           ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.primary,
+        onPressed: () async {
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => const TaskAddPage()));
+          fetchTasks(); // Refresh setelah tambah
+        },
+        child: const Icon(Icons.add, color: Colors.white),
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilter() {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: 'Cari tugas...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onChanged: (val) {
+                searchQuery = val;
+                _applyFilter();
+              },
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          DropdownButton<String>(
+            value: filterStatus,
+            items: ['Semua', 'Berjalan', 'Selesai', 'Terlambat']
+                .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                .toList(),
+            onChanged: (val) {
+              if (val != null) {
+                setState(() {
+                  filterStatus = val;
+                  _applyFilter();
+                });
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildList() {
+    if (filteredTasks.isEmpty) return const Center(child: Text("Tidak ada tugas"));
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      itemCount: filteredTasks.length,
+      itemBuilder: (context, index) {
+        final task = filteredTasks[index];
+        return Dismissible(
+          key: Key(task.id.toString()),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            color: Colors.red,
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(Icons.delete, color: Colors.white),
+          ),
+          confirmDismiss: (_) => _confirmDeleteDialog(task),
+          onDismissed: (_) async {
+            await TaskService.deleteTask(task.id);
+            allTasks.removeWhere((t) => t.id == task.id);
+          },
+          child: Card(
+            child: ListTile(
+              title: Text(task.title, style: AppTypography.subHeading),
+              subtitle: Text(task.course),
+              trailing: _statusBadge(task),
+              onTap: () async {
+                // KUNCI PERBAIKAN: Gunakan await dan panggil fetchTasks()
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => TaskDetailPage(task: task)),
+                );
+                fetchTasks(); // <--- Ini akan mengupdate status Selesai di list
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<bool?> _confirmDeleteDialog(Task task) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Hapus?'),
+        content: Text('Hapus "${task.title}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Batal')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Hapus')),
         ],
       ),
     );
@@ -142,14 +175,11 @@ class _TaskListPageState extends State<TaskListPage> {
 
   Widget _statusBadge(Task task) {
     final status = task.getStatusLabel();
-    Color color = AppColors.primary;
-    if (status == 'Selesai') color = AppColors.secondary;
-    if (status == 'Terlambat') color = AppColors.danger;
-
+    Color color = status == 'Selesai' ? AppColors.secondary : (status == 'Terlambat' ? AppColors.danger : AppColors.primary);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(8)),
-      child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+      child: Text(status, style: const TextStyle(color: Colors.white, fontSize: 10)),
     );
   }
 }
