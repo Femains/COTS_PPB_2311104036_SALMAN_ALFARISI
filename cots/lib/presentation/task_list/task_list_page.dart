@@ -145,12 +145,12 @@ class _TaskListPageState extends State<TaskListPage> {
               subtitle: Text(task.course),
               trailing: _statusBadge(task),
               onTap: () async {
-                // KUNCI PERBAIKAN: Gunakan await dan panggil fetchTasks()
+                
                 await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => TaskDetailPage(task: task)),
                 );
-                fetchTasks(); // <--- Ini akan mengupdate status Selesai di list
+                fetchTasks(); 
               },
             ),
           ),
